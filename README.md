@@ -33,10 +33,7 @@ O que os testes cobrem (mapa para requisitos da disciplina)
 - Teste de Limite (Boundary): valores `0` ou negativos são rejeitados e não alteram saldos.
 - Teste de Entrada (Input): IDs de usuários inexistentes causam erro apropriado e mantêm integridade dos saldos.
 
-Observações
-- `__getUsersForTesting()` é uma função de auxílio nos testes unitários para poder resetar o estado entre testes (evita dependência de um banco de dados real).
-- Se quiser, posso também adicionar thresholds de cobertura no `package.json` ou incluir instruções para rodar testes em CI.
 
 ---
 
-Se desejar, eu posso commitar este arquivo (`README.md`) para o repositório. Deseja que eu faça o commit agora? 
+
