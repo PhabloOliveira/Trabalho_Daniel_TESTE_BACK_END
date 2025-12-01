@@ -1,163 +1,93 @@
-const bankService = require("../bankService");
+const { transfer, getBalance, __getUsersForTesting } = require("../bankService");
 
-describe("BankService - Testes Unitários", () => {
-  // Antes de cada teste, resetar o estado dos usuários
-  beforeEach(() => {
-    const users = require("../bankService").__getUsersForTesting();
-    if (users) {
-      users[0].balance = 1000;
-      users[1].balance = 500;
+describe("BankService - Testes Unitários (refatorado)", () => {
+  const restoreBalances = () => {
+    const users = __getUsersForTesting();
+    if (!users) return;
+    const u1 = users.find((u) => u.id === 1);
+    const u2 = users.find((u) => u.id === 2);
+    if (u1) u1.balance = 1000;
+    if (u2) u2.balance = 500;
+  };
+
+  beforeEach(() => restoreBalances());
+
+  const expectBalancesUnchangedOnError = (senderId, receiverId, fn, expectedMessage) => {
+    const beforeSender = getBalance(senderId);
+    const beforeReceiver = getBalance(receiverId);
+    try {
+      fn();
+    } catch (err) {
+      expect(getBalance(senderId)).toBe(beforeSender);
+      expect(getBalance(receiverId)).toBe(beforeReceiver);
+      expect(err.message).toBe(expectedMessage);
+      return;
     }
-  });
+    throw new Error("Erro esperado, mas não ocorreu");
+  };
 
-  describe("Cenário Positivo (Caminho Feliz)", () => {
-    test("Deve realizar transferência válida com saldo suficiente", () => {
-      // Arrange (Preparar)
-      const senderId = 1;
-      const receiverId = 2;
-      const amount = 300;
-
-      // Act (Agir)
-      const result = bankService.transfer(senderId, receiverId, amount);
-
-      // Assert (Verificar)
-      expect(result.success).toBe(true);
-      expect(result.message).toBe("Transferência realizada");
-      expect(result.newSenderBalance).toBe(700);
-      expect(bankService.getBalance(receiverId)).toBe(800);
+  describe("Caminhos de sucesso", () => {
+    test("realiza transferência quando há saldo suficiente", () => {
+      const res = transfer(1, 2, 300);
+      expect(res.success).toBe(true);
+      expect(res.message).toBe("Transferência realizada");
+      expect(res.newSenderBalance).toBe(700);
+      expect(getBalance(2)).toBe(800);
     });
 
-    test("Deve permitir transferir todo o saldo disponível", () => {
-      const senderId = 2;
-      const receiverId = 1;
-      const amount = 500;
-
-      const result = bankService.transfer(senderId, receiverId, amount);
-
-      expect(result.success).toBe(true);
-      expect(result.newSenderBalance).toBe(0);
-      expect(bankService.getBalance(receiverId)).toBe(1500);
+    test("permite transferir todo o saldo disponível", () => {
+      const res = transfer(2, 1, 500);
+      expect(res.success).toBe(true);
+      expect(res.newSenderBalance).toBe(0);
+      expect(getBalance(1)).toBe(1500);
     });
   });
 
-  describe("Cenário Negativo (Saldo Insuficiente)", () => {
-    test("Deve rejeitar transferência quando saldo é insuficiente", () => {
-      const senderId = 2;
-      const receiverId = 1;
-      const amount = 600;
-
-      expect(() => {
-        bankService.transfer(senderId, receiverId, amount);
-      }).toThrow("Saldo insuficiente");
+  describe("Falhas por saldo", () => {
+    test("rejeita quando saldo é insuficiente", () => {
+      expect(() => transfer(2, 1, 600)).toThrow("Saldo insuficiente");
     });
 
-    test("Deve manter saldos inalterados quando transferência falha por saldo", () => {
-      const senderId = 2;
-      const receiverId = 1;
-      const initialSenderBalance = bankService.getBalance(senderId);
-      const initialReceiverBalance = bankService.getBalance(receiverId);
-
-      try {
-        bankService.transfer(senderId, receiverId, 1000);
-      } catch (error) {
-        //mantem inalterados com saldo inicial
-        expect(bankService.getBalance(senderId)).toBe(initialSenderBalance);
-        expect(bankService.getBalance(receiverId)).toBe(initialReceiverBalance);
-        expect(error.message).toBe("Saldo insuficiente");
-      }
+    test("mantém saldos inalterados quando falha por saldo insuficiente", () => {
+      expectBalancesUnchangedOnError(2, 1, () => transfer(2, 1, 1000), "Saldo insuficiente");
     });
   });
 
-  describe("Teste de Limite (Boundary) - Valores Inválidos", () => {
-    test("Deve rejeitar transferência com valor zero", () => {
-      const senderId = 1;
-      const receiverId = 2;
-      const amount = 0;
-
-      expect(() => {
-        bankService.transfer(senderId, receiverId, amount);
-      }).toThrow("Valor inválido");
+  describe("Validações de valor (boundary)", () => {
+    test.each([[0], [-50]])("rejeita transferência com valor inválido: %i", (amount) => {
+      expect(() => transfer(1, 2, amount)).toThrow("Valor inválido");
     });
 
-    test("Deve rejeitar transferência com valor negativo", () => {
-      const senderId = 1;
-      const receiverId = 2;
-      const amount = -50;
-
-      expect(() => {
-        bankService.transfer(senderId, receiverId, amount);
-      }).toThrow("Valor inválido");
-    });
-
-    test("Deve manter saldos inalterados quando transferência falha por valor inválido", () => {
-      const senderId = 1;
-      const receiverId = 2;
-      const initialSenderBalance = bankService.getBalance(senderId);
-      const initialReceiverBalance = bankService.getBalance(receiverId);
-
-      try {
-        bankService.transfer(senderId, receiverId, -100);
-      } catch (error) {
-        expect(bankService.getBalance(senderId)).toBe(initialSenderBalance);
-        expect(bankService.getBalance(receiverId)).toBe(initialReceiverBalance);
-        expect(error.message).toBe("Valor inválido");
-      }
+    test("mantém saldos quando valor inválido causa falha", () => {
+      expectBalancesUnchangedOnError(1, 2, () => transfer(1, 2, -100), "Valor inválido");
     });
   });
 
-  describe("Teste de Entrada (Input) - Usuários Inexistentes", () => {
-    test("Deve rejeitar quando remetente não existe", () => {
-      const senderId = 999;
-      const receiverId = 2;
-      const amount = 100;
-
-      expect(() => {
-        bankService.transfer(senderId, receiverId, amount);
-      }).toThrow("Usuário não encontrado");
+  describe("Usuários inexistentes", () => {
+    test("remetente não existente", () => {
+      expect(() => transfer(999, 2, 100)).toThrow("Usuário não encontrado");
     });
 
-    test("Deve rejeitar quando destinatário não existe", () => {
-      const senderId = 1;
-      const receiverId = 999;
-      const amount = 100;
-
-      expect(() => {
-        bankService.transfer(senderId, receiverId, amount);
-      }).toThrow("Usuário não encontrado");
+    test("destinatário não existente", () => {
+      expect(() => transfer(1, 999, 100)).toThrow("Usuário não encontrado");
     });
 
-    test("Deve rejeitar quando ambos os usuários não existem", () => {
-      const senderId = 888;
-      const receiverId = 999;
-      const amount = 100;
-
-      expect(() => {
-        bankService.transfer(senderId, receiverId, amount);
-      }).toThrow("Usuário não encontrado");
+    test("ambos não existentes", () => {
+      expect(() => transfer(888, 999, 100)).toThrow("Usuário não encontrado");
     });
 
-    test("Deve manter saldos de outros usuários quando transferência falha", () => {
-      const validUserId = 1;
-      const initialBalance = bankService.getBalance(validUserId);
-
-      try {
-        bankService.transfer(999, 1, 100);
-      } catch (error) {
-        expect(bankService.getBalance(validUserId)).toBe(initialBalance);
-        expect(error.message).toBe("Usuário não encontrado");
-      }
+    test("mantém saldos de outros usuários quando falha por usuário inexistente", () => {
+      expectBalancesUnchangedOnError(1, 2, () => transfer(999, 1, 100), "Usuário não encontrado");
     });
   });
 
-  describe("Teste de getBalance", () => {
-    test("Deve retornar o saldo correto para usuário existente", () => {
-      const balance = bankService.getBalance(1);
-      expect(balance).toBe(1000);
+  describe("getBalance", () => {
+    test("retorna saldo correto para usuário existente", () => {
+      expect(getBalance(1)).toBe(1000);
     });
 
-    test("Deve retornar null para usuário inexistente", () => {
-      const balance = bankService.getBalance(999);
-      expect(balance).toBeNull();
+    test("retorna null para usuário inexistente", () => {
+      expect(getBalance(999)).toBeNull();
     });
   });
 });
